@@ -1,8 +1,6 @@
 # 🚀 Cversota - Controle de Versão e update via OTA 🚀
 ![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge) 
-![AppVeyor](https://img.shields.io/appveyor/build/gustavors1608/CVersOTA?style=for-the-badge) 
 ![GitHub language count](https://img.shields.io/github/languages/count/gustavors1608/CVersOTA?style=for-the-badge) 
-![Snyk Vulnerabilities for GitHub Repo](https://img.shields.io/snyk/vulnerabilities/github/gustavors1608/CVersOTA?style=for-the-badge) 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ESP32-green?style=for-the-badge)
 
 
