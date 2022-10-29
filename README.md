@@ -1,6 +1,8 @@
 # 🚀 Cversota - Controle de Versão e update via OTA 🚀
 ![MIT License](https://img.shields.io/badge/License-MIT-green.svg?style=for-the-badge) 
-![GitHub language count](https://img.shields.io/github/languages/count/gustavors1608/CVersOTA?style=for-the-badge) 
+![AppVeyor](https://img.shields.io/appveyor/build/gustavors1608/cversota?style=for-the-badge) 
+![GitHub language count](https://img.shields.io/github/languages/count/gustavors1608/cversota?style=for-the-badge) 
+![Snyk Vulnerabilities for GitHub Repo](https://img.shields.io/snyk/vulnerabilities/github/gustavors1608/cversota?style=for-the-badge) 
 ![Plataforma](https://img.shields.io/badge/Plataforma-ESP32-green?style=for-the-badge)
 
 
@@ -108,7 +110,9 @@ Após realizar o upload para o seu esp32, o mesmo irá verificar a cada 6h o lin
 7. Carregar esse arquivo json para o server.
 8. Veja a magia acontecendo no esp32. 🧙‍♂️
 
-
+## notas:
+- criar funcao de call back para quando comecar a atualizar, notificar uma funcao
+- usar somente a noite  ou madrugada, quando o dispositivo nao for usado, dessa forma, pode demorar pra atualizar sem problemas etc
 
 
 ## ✏️ Author ✏️

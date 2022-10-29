@@ -16,7 +16,7 @@
 
 
 //intensidade minima ota (para não cair a conexão ao começar a baixar os binarios)
-#define rssi_min_download -95 // realizar testes para descobrir ate quanto é possivel utilizar 
+#define rssi_min_download -85 // por esse valor mais proximo a zero para evitar que demora 30 minuto spara fazer o upload
 
 // Tamanho do Objeto JSON vindo do server de verificação de versão
 #define  __cvers_json_size             JSON_OBJECT_SIZE(5) + 288 //https://arduinojson.org/v6/assistant
@@ -32,24 +32,54 @@ class cversota{
     bool beta_tester_user = false;
     unsigned long interval_vrf_ver = 0; 
     char url_version_json[100];
-    char fw_version[7];
-    char fs_version[7]; // "0.0.0"
+    char fw_version[12];
+    char fs_version[12]; // "0.0.0" a "xx.xxx.xxxx"
 
     bool net_stable = false;
 
     // Dados do arquivo de versão web
     struct VCS {
-      char    fwVersion[6];
+      char    fwVersion[12];
       bool    fwObri;
       char    fwURL[101];
-      char    fsVersion[6];
+      char    fsVersion[12];
       bool    fsObri;
       char    fsURL[101];
     };
     VCS vcs;
 
+    public:
+
+    struct errorStatus{
+      /*
+        0 = tudo ok
+        1 = erro ao verificar a versao no server (server diferente de 200)
+        2 = arquivo de versao invalido no quesito json
+        3 = erro ao abrir sistema de arquivos
+        4 = internet instavel
+        5 = erro no update ( verificar code_error_httpupdate)
+        6 = ainda n deu o intervalo para verificar atualizacao
+      */
+      uint8_t code = 0;
+      /*
+        0 = nenhuma info
+        1 = versao disponivel apenas para betatester
+        2 = fw atualizado
+        3 = fs atualizado
+        4 = valores requisitados com sucesso
+        5 = fs e fw atualizados
+     */
+      uint8_t info = 0;
+     
+      int code_http; //codigo http da ultima request
+      int code_error_httpupdate; // codigo de erro da lib que atualiza a flash
+    };
+    errorStatus Error;
+
+
     /// @brief verifica o arquivo de versao no server e passa os valores do json para dentro da struct
     /// @return true = sucesso ou false = erro no request ou json error
+    /// @todo dar um callback quando for atualizar
     bool cvers_check(){
       // Obtém arquivo de versão
       WiFiClientSecure client;
@@ -59,17 +89,20 @@ class cversota{
 
       HTTPClient http;
       http.begin(client, url_version_json);
-      int httpCode = http.GET();
+
+      int httpCode = http.GET(); // da pra usar direto, sem precisar de variavel, mas vale a pena?
+      Error.code_http = httpCode;
+
       String s = http.getString();
       http.end();
       s.trim();
 
       if (httpCode != HTTP_CODE_OK){
         // Erro obtendo arquivo de versão
-        Serial.println("ERRO HTTP " + String(httpCode) + " " + http.errorToString(httpCode));
+        Error.code = 1;
         return false;
       }else{
-
+        
         // Tratamento do arquivo
         StaticJsonDocument<96> filter; //usado para avisar quais valores serao usados, assim economizando memoria
         filter["fwVersion"] = true;
@@ -82,7 +115,7 @@ class cversota{
 
         if (deserializeJson(jsonVCS, s ,DeserializationOption::Filter(filter))){
           // Arquivo de versão inválido
-          Serial.println(F("Arquivo de versão inválido"));
+          Error.code = 2;
           return false;
         }
 
@@ -95,9 +128,8 @@ class cversota{
         vcs.fsObri = jsonVCS["fsObri"] | false;
         strlcpy(vcs.fsURL, jsonVCS["fsURL"] | "", sizeof(vcs.fsURL));
 
-        //Serial.println(F("Dados recebidos:"));
-        //serializeJsonPretty(jsonVCS, Serial);
-        //Serial.println();
+        Error.info = 4;
+        Error.code = 0;
 
         return true;
       }
@@ -108,10 +140,8 @@ class cversota{
 
       // SPIFFS
       if (!SPIFFS.begin(true)) {
-        Serial.println(F("SPIFFS ERRO"));
-        while (true);
-      }else{
-        Serial.println("spiffs iniciado com sucesso");
+        Error.code = 3;
+        return;
       }
 
       WiFiClientSecure client;
@@ -122,7 +152,7 @@ class cversota{
       // ESP32
       httpUpdate.rebootOnUpdate(false);
 
-      // Callback - Progresso
+      //Callback - Progresso - bonito porem inutil no mundo real, se ninguem vai ver a serial, por que mostrar o progresso
       Update.onProgress([](size_t progresso, size_t total){
           byte porcentagem = (progresso * 100 / total);
           static byte porcentagem_anterior;
@@ -137,22 +167,25 @@ class cversota{
       if(vcs.fwObri == true || vcs.fsObri == true || this->beta_tester_user == true){
         if (strcmp(this->fs_version, vcs.fsVersion) != 0){
           // Atualiza Sistema de Arquivos
-          Serial.println(F("Atualizando SPIFFS..."));
-          //já que vai atualizar o spiffs, entao desliga ele
-          SPIFFS.end();
+          Serial.println("atualizando o fs");
+
+          SPIFFS.end();          //já que vai atualizar o spiffs, entao desliga ele
 
           t_httpUpdate_return result = httpUpdate.updateSpiffs(client, vcs.fsURL);
 
           // Verifica resultado
           switch(result){
             case HTTP_UPDATE_FAILED:
-                Serial.println("Falha: " + httpUpdate.getLastErrorString());
+                Error.code_error_httpupdate = httpUpdate.getLastError(); 
+                Error.code = 5;
               break;
             case HTTP_UPDATE_NO_UPDATES:
-                Serial.println(F("Nenhuma atualização disponível"));
+                Error.code = 0;
+                Error.info = 2;
               break;
             case HTTP_UPDATE_OK:
-                Serial.println("Atualizado");
+                Error.code = 0;
+                Error.info = 2;
               break;
           }
 
@@ -163,33 +196,35 @@ class cversota{
 
         if(strcmp(this->fw_version, vcs.fwVersion) != 0){
           // Atualiza Software
-          Serial.println(F("Atualizando Firmware..."));
-          
+          Serial.println("atualizando o fw");
           t_httpUpdate_return result = httpUpdate.update(client, vcs.fwURL);
-
+          
           // Verifica resultado
           switch(result){
             case HTTP_UPDATE_FAILED:
-                Serial.println("Falha: " + httpUpdate.getLastErrorString());
+                Error.code_error_httpupdate = httpUpdate.getLastError(); 
+                Error.code = 5;
               break;
             case HTTP_UPDATE_NO_UPDATES:
-                Serial.println(F("Nenhuma atualização disponível"));
+                Error.code = 0;
+                Error.info = 2;
               break;
             case HTTP_UPDATE_OK:
-                Serial.println("Atualizado, reiniciando...");
+                Error.code = 0;
+                Error.info = 2;
                 delay(500);
                 ESP.restart();
               break;
-            default:
-                //seria o caso registrar um log...
-              break;
           }
         }
+      }else{
+        //versao disponivel somente para beta tester
+        Error.info = 1;
       }
       
     }
 
-  public:
+
 
     /// @brief controle de versionamento e atualizacoes via ota
     /// @param interval_vrf_version a cada 6 horas por exemplo, intervalo em ms
@@ -223,6 +258,7 @@ class cversota{
         this->net_stable = true;
       }else{
         this->net_stable = false;
+        Error.code = 4;
       }
     }
 
@@ -235,11 +271,9 @@ class cversota{
 
       if(next_verify_version <= millis() || force_verify_update == true){ // juntar com alguma outra coisa pra ter alguma redundancia, exemplo, ao apertar botao verifica...
         if ((WiFi.status() == WL_CONNECTED) && (this->net_stable == true)){ // verifica se tem wifi e se ta estavel a rede
-          
-          Serial.println(F("Verificando versão do fw e fs... "));
   
           if(!this->cvers_check()){
-            Serial.println("ocorreu um erro ao verificar a versao");
+            return; // nao tem por que perder tempo em continuar se nem sabe a real versao no server
           }
         
           // ja "agenda" a próxima verificação para daqui x tempo
@@ -248,11 +282,17 @@ class cversota{
           // verifica se a versao do firmware ou do spiffs esta diferente da que veio de server
           if ((strcmp(this->fs_version, vcs.fsVersion) != 0) || (strcmp(this->fw_version, vcs.fwVersion) != 0)) {
             this->cvers_update(); // atualiza de fato
+          }else{
+            Error.info = 5;
           }
         }else{
           //sem conexao adequada para atualizar ou verificar atualizacoes
-          Serial.println("sem conexao adequada para atualizar ou verificar atualizacoes");
+          Error.code = 4;
         }
+      }//else if(millis() > 50 days ){ next_verify_version = 0 } ou reset 
+      else{
+        //ainda n ta no tempo 
+        Error.code = 6;
       }
 
 
